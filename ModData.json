@@ -1,8 +1,0 @@
-{
-  "name": "Advanced Taxiways",
-  "description": "Ramp areas and taxi priority for taxiway nodes. Mark a node as a ramp edge and aircraft will only taxi through that area if their destination is inside it. Set a taxi priority on any node to steer routing away from it.",
-  "author": "",
-  "version": "0.1.0",
-  "gameVersion": "",
-  "requiredMods": [ "AirportCEO Mod Loader" ]
-}
