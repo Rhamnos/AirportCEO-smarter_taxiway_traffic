@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net461</TargetFramework>
+    <AssemblyName>AirportCEOAdvancedTaxiways</AssemblyName>
+    <RootNamespace>AdvancedTaxiways</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <EnableDefaultCompileItems>true</EnableDefaultCompileItems>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <!-- The game ships no XML docs; silence the noise from referencing it. -->
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <GameDir>/home/farber/.steam/debian-installation/steamapps/common/Airport CEO</GameDir>
+    <ManagedDir>$(GameDir)/Airport CEO_Data/Managed</ManagedDir>
+    <BepInExDir>$(GameDir)/BepInEx/core</BepInExDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Lets net461 build on Linux without a Mono/.NET Framework install. -->
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="Assembly-CSharp"><HintPath>$(ManagedDir)/Assembly-CSharp.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine"><HintPath>$(ManagedDir)/UnityEngine.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.CoreModule"><HintPath>$(ManagedDir)/UnityEngine.CoreModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="BepInEx"><HintPath>$(BepInExDir)/BepInEx.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="0Harmony"><HintPath>$(BepInExDir)/0Harmony.dll</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+
+</Project>

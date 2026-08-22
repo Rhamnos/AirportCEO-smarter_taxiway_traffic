@@ -1,0 +1,8 @@
+# Build output
+src/bin/
+src/obj/
+
+# Decompiled game and mod-loader assemblies. Derived from the installed game, large,
+# and not ours to redistribute -- regenerate with ilspycmd if needed.
+.decompiled/
+.decompiled-modloader/
