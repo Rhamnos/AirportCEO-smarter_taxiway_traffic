@@ -25,6 +25,7 @@ namespace AdvancedTaxiways
         internal static ConfigEntry<bool> DeadlockBreaker;
         internal static ConfigEntry<float> WarnRepeatSeconds;
         internal static ConfigEntry<bool> OpposingRuns;
+        internal static ConfigEntry<int> OpposingScanNodes;
         internal static ConfigEntry<int> MinBlockNodes;
         internal static ConfigEntry<float> BlockHoldMargin;
         internal static ConfigEntry<float> SummaryInterval;
@@ -157,6 +158,14 @@ namespace AdvancedTaxiways
                     "junctions needs no special handling — whoever reaches it first passes straight " +
                     "through — so the default ignores those.",
                     new AcceptableValueRange<int>(1, 20)));
+
+            OpposingScanNodes = Config.Bind("Blocks", "Junction scan distance", 40,
+                new ConfigDescription(
+                    "How many nodes ahead to look for oncoming traffic outside single-lane blocks. " +
+                    "Junction nodes belong to no block, but the game still allows only one aircraft " +
+                    "per node — so a ramp connector built of junctions is exactly as unpassable as a " +
+                    "corridor. 40 nodes is 160 m. Raise it if head-on gridlock still forms at junctions.",
+                    new AcceptableValueRange<int>(10, 200)));
 
             OpposingRuns = Config.Bind("Blocks", "Single-lane exclusion", true,
                 "Clear aircraft through a single-lane block one direction at a time, the way a ground " +

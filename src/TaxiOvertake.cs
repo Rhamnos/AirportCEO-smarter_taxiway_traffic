@@ -328,7 +328,15 @@ namespace AdvancedTaxiways
 
             // Mutual exclusion first: decide who owns a head-on corridor before anyone
             // is allowed to reorder queues inside it.
-            if (Plugin.OpposingRuns.Value) EnforceBlocks(all, atc);
+            if (Plugin.OpposingRuns.Value)
+            {
+                EnforceBlocks(all, atc);
+
+                // Blocks only cover single-lane runs. Junction nodes belong to no block, so
+                // a head-on forming across them — a ramp connector, most often — was never
+                // something block exclusion could catch.
+                EnforceOpposingPairs(all, atc);
+            }
 
             for (int i = 0; i < all.Length; i++)
             {
@@ -526,6 +534,7 @@ namespace AdvancedTaxiways
         private readonly Dictionary<int, float> blockHeldSince = new Dictionary<int, float>();
         private readonly HashSet<int> blocksSeen = new HashSet<int>();
         private readonly List<int> staleBlocks = new List<int>();
+        private readonly HashSet<string> opposingPairsSeen = new HashSet<string>();
 
         // Who is currently behind whom, derived from the node queues each sweep.
         private readonly Dictionary<string, List<string>> waitsFor = new Dictionary<string, List<string>>();
@@ -691,6 +700,159 @@ namespace AdvancedTaxiways
                 for (int i = 0; i < next.Count; i++)
                 {
                     if (reachSeen.Add(next[i])) reachStack.Push(next[i]);
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Head-on conflicts that are not inside a block.
+        ///
+        /// Blocks were limited to runs of degree-&lt;=2 nodes on the theory that aircraft can
+        /// pass one another elsewhere. That is wrong: the game allows **one aircraft per
+        /// node**, so two routes sharing nodes in opposite order conflict whatever the
+        /// degree. Passing happens by taking *different* nodes, which means no shared run
+        /// at all. A ramp connector built of junction nodes is exactly as unpassable as a
+        /// corridor, and that is where the gridlock formed.
+        ///
+        /// Blocks keep their token machinery for corridors, where hold time has to scale
+        /// with length. This handles everything else, pair by pair.
+        /// </summary>
+        private void EnforceOpposingPairs(AircraftController[] all, AirTrafficController atc)
+        {
+            opposingPairsSeen.Clear();
+
+            for (int i = 0; i < all.Length; i++)
+            {
+                var m = all[i];
+                if (m == null || m.am == null) continue;
+
+                var mPath = PathOf(m);
+                if (mPath?.nodes == null || mPath.nodes.Length == 0) continue;
+                if (ContestedNodeOf(m, mPath) == null) continue;
+
+                string mID = m.ReferenceID;
+                int from = Mathf.Clamp(m.TargetIndex, 0, mPath.nodes.Length - 1);
+                int to = Mathf.Min(mPath.nodes.Length, from + Plugin.OpposingScanNodes.Value);
+
+                for (int k = from; k < to; k++)
+                {
+                    var node = mPath.nodes[k];
+                    if (node == null) continue;
+                    if (TaxiwayBlocks.BlockAt(node) >= 0) continue;   // a block owns this one
+
+                    for (var cur = node.occupeeRefs.First; cur != null; cur = cur.Next)
+                    {
+                        if (cur.Value == mID) continue;
+                        if (!opposingPairsSeen.Add(PairKey(mID, cur.Value))) continue;
+                        ResolveOpposingPair(m, mPath, k, atc.GetAircraftByReferenceID(cur.Value));
+                    }
+                }
+            }
+        }
+
+        private void ResolveOpposingPair(AircraftController m, SmoothPath<TaxiwayNode> mPath, int index, AircraftController o)
+        {
+            if (o == null || o == m || o.am == null) return;
+
+            var oPath = PathOf(o);
+            if (oPath?.nodes == null || oPath.nodes.Length == 0) return;
+            if (ContestedNodeOf(o, oPath) == null) return;
+            if (Classify(mPath, index, oPath) != Shared.Opposite) return;
+
+            bool mInTheWay = StandsInTheWayOf(m, mPath, o, oPath);
+            bool oInTheWay = StandsInTheWayOf(o, oPath, m, mPath);
+
+            AircraftController winner, loser;
+            SmoothPath<TaxiwayNode> winnerPath;
+            string why;
+
+            if (mInTheWay && oInTheWay)
+            {
+                if (ShouldWarn("pair:" + PairKey(m.ReferenceID, o.ReferenceID)))
+                {
+                    Plugin.Log.LogWarning(
+                        $"Head-on at a junction, both already committed: {Tag(m)} {m.ReferenceID} and "
+                        + $"{Tag(o)} {o.ReferenceID}. Nothing to reorder; this needed preventing.");
+                }
+                return;
+            }
+
+            if (mInTheWay || oInTheWay)
+            {
+                bool mWins = mInTheWay;
+                winner = mWins ? m : o;
+                loser = mWins ? o : m;
+                winnerPath = mWins ? mPath : oPath;
+                why = "already committed";
+            }
+            else
+            {
+                var node = mPath.nodes[index];
+                float run = SharedRunLength(mPath, index, oPath) * 4f;
+                float dM = Utils.GetDistance2D(m.Position, node.worldPosition);
+                float dO = Utils.GetDistance2D(o.Position, node.worldPosition);
+
+                bool mWins;
+                if (dM + run < dO) { mWins = true; why = "clears first"; }
+                else if (dO + run < dM) { mWins = false; why = "clears first"; }
+                else
+                {
+                    var pm = PriorityOf(m, mPath);
+                    var po = PriorityOf(o, oPath);
+                    if (pm.Protected != po.Protected) { mWins = pm.Protected; why = "priority"; }
+                    else { mWins = dM <= dO; why = "nearest"; }
+                }
+
+                winner = mWins ? m : o;
+                loser = mWins ? o : m;
+                winnerPath = mWins ? mPath : oPath;
+            }
+
+            if (MoveAheadEverywhere(winner, loser, winnerPath) && lastChangedQueues > 0 && Plugin.OvertakeLogging.Value)
+            {
+                Plugin.Log.LogInfo(
+                    $"Head-on: {Tag(winner)} {winner.ReferenceID} goes, {Tag(loser)} {loser.ReferenceID} holds off ({why}).");
+            }
+        }
+
+        /// <summary>How many nodes the two routes share continuously from this point.</summary>
+        private static int SharedRunLength(SmoothPath<TaxiwayNode> mine, int index, SmoothPath<TaxiwayNode> theirs)
+        {
+            int run = 0;
+            for (int i = index; i < mine.nodes.Length && run < 200; i++)
+            {
+                var node = mine.nodes[i];
+                if (node == null) break;
+
+                bool onTheirs = false;
+                for (int j = 0; j < theirs.nodes.Length && !onTheirs; j++) onTheirs = theirs.nodes[j] == node;
+                if (!onTheirs) break;
+
+                run++;
+            }
+            return Mathf.Max(1, run);
+        }
+
+        /// <summary>
+        /// True when <paramref name="x"/> is physically standing on ground <paramref name="y"/>
+        /// still has to drive over — the thing that decides a head-on, because an aircraft in
+        /// that position cannot back out and the game has no tug.
+        /// </summary>
+        private static bool StandsInTheWayOf(AircraftController x, SmoothPath<TaxiwayNode> xPath,
+                                             AircraftController y, SmoothPath<TaxiwayNode> yPath)
+        {
+            int reached = Mathf.Clamp(x.TargetIndex, 0, xPath.nodes.Length - 1);
+            int tail = Mathf.Max(0, reached - PhysicalTail(x.am));
+            int from = Mathf.Clamp(y.TargetIndex, 0, yPath.nodes.Length - 1);
+
+            for (int i = tail; i <= reached; i++)
+            {
+                var node = xPath.nodes[i];
+                if (node == null) continue;
+                for (int j = from; j < yPath.nodes.Length; j++)
+                {
+                    if (yPath.nodes[j] == node) return true;
                 }
             }
             return false;
