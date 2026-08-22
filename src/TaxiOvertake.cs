@@ -506,8 +506,8 @@ namespace AdvancedTaxiways
                 sinceGridlock++;
                 Plugin.Log.LogWarning(
                     $"Found a {size}-way taxi deadlock but could not break it: every candidate is blocked by "
-                    + "ground another cycle member is standing on. This needs a re-route, not a reorder. "
-                    + "Members: " + string.Join(", ", cycleKey.ToArray()));
+                    + "ground another cycle member is standing on. This needs a re-route, not a reorder.\n"
+                    + DescribeCycle());
             }
         }
 
@@ -883,6 +883,38 @@ namespace AdvancedTaxiways
                     $"Block {block}: direction {owning} owns it ({lastOwnerReason}), "
                     + $"{changedPairs} opposing aircraft held off.");
             }
+        }
+
+        /// <summary>
+        /// Everything prevention needs to be judged against, for a cycle it failed to stop:
+        /// what each aircraft is, what it is doing, and — critically — whether the node it
+        /// is stuck on is inside a single-lane block or out at a junction. Block exclusion
+        /// only covers blocks, so a head-on that formed across junction nodes was never
+        /// something it could have caught, and that is a different fix from one it should
+        /// have caught and did not.
+        /// </summary>
+        private string DescribeCycle()
+        {
+            var sb = new System.Text.StringBuilder();
+            for (int i = 0; i < cycleKey.Count; i++)
+            {
+                string id = cycleKey[i];
+                if (!byID.TryGetValue(id, out var ac) || ac == null) { sb.Append("    ").Append(id).Append(" (gone)\n"); continue; }
+
+                contestedBy.TryGetValue(id, out var node);
+                int block = node == null ? -1 : TaxiwayBlocks.BlockAt(node);
+                int degree = node?.adjacentTaxiwayNodes == null ? -1 : node.adjacentTaxiwayNodes.Count;
+                string waiting = blockedBy.TryGetValue(id, out var on) ? on.Substring(0, 8) : "nobody";
+
+                sb.Append("    ").Append(id.Substring(0, 8)).Append(' ').Append(Tag(ac))
+                  .Append(' ').Append(ac.am.AircraftAction)
+                  .Append(" idx ").Append(ac.TargetIndex)
+                  .Append(" waiting on ").Append(waiting)
+                  .Append(" at node degree ").Append(degree)
+                  .Append(block >= 0 ? $" in block {block} (len {TaxiwayBlocks.Length(block)})" : " at a JUNCTION, no block")
+                  .Append('\n');
+            }
+            return sb.ToString();
         }
 
         private bool lastOwnerWasInside;
