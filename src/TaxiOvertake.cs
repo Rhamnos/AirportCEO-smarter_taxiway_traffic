@@ -213,7 +213,7 @@ namespace AdvancedTaxiways
         /// </summary>
         private static bool IsWaitingToPushBack(AircraftController ac, SmoothPath<TaxiwayNode> path)
         {
-            if (ac?.am == null || ac.am.AircraftAction != Enums.AircraftAction.PushBack) return false;
+            if (ac?.am == null || !IsPushingBack(ac.am.AircraftAction)) return false;
             if (path?.nodes == null || path.nodes.Length == 0 || path.nodes[0] == null) return false;
             return !path.nodes[0].IsTravelable(ac.ReferenceID);
         }
@@ -228,7 +228,7 @@ namespace AdvancedTaxiways
         {
             if (path?.nodes == null || path.nodes.Length == 0) return null;
 
-            if (ac.am.AircraftAction == Enums.AircraftAction.PushBack) return path.nodes[0];
+            if (IsPushingBack(ac.am.AircraftAction)) return path.nodes[0];
             if (!IsNodeTaxiing(ac.am.AircraftAction)) return null;
 
             int index = ac.CurrentLookAheadIndex;
@@ -298,6 +298,20 @@ namespace AdvancedTaxiways
         {
             var flight = ac.FlightModel;
             return flight != null && flight.flightType == Enums.FlightType.GeneralAviation;
+        }
+
+        /// <summary>
+        /// Both kinds of pushback. `PushBackFromHangar` is a separate action but a
+        /// structurally identical coroutine — same `OccupyFullPath`, same
+        /// `pathPreOccupied`, same `while (!firstNode.IsTravelable(...))` gate, same
+        /// unguarded reverse afterwards. Testing only for `PushBack` left everything
+        /// leaving a repair hangar invisible to all of this, which is the same gap that
+        /// once hid queued stand pushbacks from the deadlock graph.
+        /// </summary>
+        private static bool IsPushingBack(Enums.AircraftAction action)
+        {
+            return action == Enums.AircraftAction.PushBack
+                || action == Enums.AircraftAction.PushBackFromHangar;
         }
 
         private static bool IsDeparting(Enums.AircraftAction action)
@@ -391,14 +405,21 @@ namespace AdvancedTaxiways
                 var path = PathOf(ac);
                 if (path?.nodes == null || path.nodes.Length == 0) continue;
 
-                // Queued pushbacks belong in this graph. They hold reservations and they
-                // wait on other aircraft, so leaving them out made every chain that
+                string id = ac.ReferenceID;
+
+                // Name every aircraft holding a path, even ones that never wait on anybody.
+                // An aircraft on a deicing pad blocks the node it stands on but waits only
+                // on a clock, so a chain reaching it correctly terminates — but if it is not
+                // in this map the chain terminates *anonymously*, and the report shows a
+                // shorter cycle than the one on screen. That blind spot is what hid the
+                // pushback problem for several rounds.
+                byID[id] = ac;
+
+                // Queued pushbacks belong in this graph too. They hold reservations and they
+                // do wait on other aircraft, so leaving them out made every chain that
                 // reached one look like it terminated.
                 var node = ContestedNodeOf(ac, path);
                 if (node == null) continue;
-
-                string id = ac.ReferenceID;
-                byID[id] = ac;
 
                 if (node.IsTravelable(id)) continue;   // free: a chain ending here cannot be a cycle
                 blockedBy[id] = node.PeekFirstOccupee();
@@ -907,7 +928,7 @@ namespace AdvancedTaxiways
         /// </summary>
         private static bool IsParkedForPushback(AircraftController ac, SmoothPath<TaxiwayNode> path)
         {
-            if (ac?.am == null || ac.am.AircraftAction != Enums.AircraftAction.PushBack) return false;
+            if (ac?.am == null || !IsPushingBack(ac.am.AircraftAction)) return false;
             if (path?.nodes == null || path.nodes.Length == 0 || path.nodes[0] == null) return false;
 
             return Utils.GetDistance2D(ac.Position, path.nodes[0].worldPosition) > PhysicalTail(ac.am) * 4f;
@@ -953,7 +974,7 @@ namespace AdvancedTaxiways
             // Judging this by physical position instead — "it is still parked, so it is not
             // in the way" — is true and useless: it let arrivals into a connector that a
             // departure was about to reverse into unstoppably.
-            if (x.am.AircraftAction == Enums.AircraftAction.PushBack)
+            if (IsPushingBack(x.am.AircraftAction))
             {
                 if (IsWaitingToPushBack(x, xPath)) return false;   // still at the gate, can be held
                 return SharesRemainingGround(xPath, 0, PhysicalTail(x.am), y, yPath);
@@ -1203,7 +1224,9 @@ namespace AdvancedTaxiways
                 contestedBy.TryGetValue(id, out var node);
                 int block = node == null ? -1 : TaxiwayBlocks.BlockAt(node);
                 int degree = node?.adjacentTaxiwayNodes == null ? -1 : node.adjacentTaxiwayNodes.Count;
-                string waiting = blockedBy.TryGetValue(id, out var on) ? on.Substring(0, 8) : "nobody";
+                string waiting = blockedBy.TryGetValue(id, out var on)
+                    ? on.Substring(0, 8)
+                    : "nobody (holds ground but waits on no aircraft)";
 
                 sb.Append("    ").Append(id.Substring(0, 8)).Append(' ').Append(Tag(ac))
                   .Append(' ').Append(ac.am.AircraftAction)

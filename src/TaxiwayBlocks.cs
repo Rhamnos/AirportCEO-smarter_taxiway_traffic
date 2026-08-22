@@ -156,10 +156,28 @@ namespace AdvancedTaxiways
             float mean = blocks.Count == 0 ? 0f : (float)total / blocks.Count;
             float corridorShare = all.Count == 0 ? 0f : 100f * corridor / all.Count;
 
+            // Branches ending in a degree-1 node with nothing on them. Stand and hangar
+            // connectors are normally a single node off the lane, so anything longer is
+            // usually taxiway left behind when something was demolished. Harmless to
+            // traffic — nothing routes into them — but every edge in a stub is a bridge
+            // and a block, so they inflate those counts and make the airport look more
+            // tree-like than it is.
+            int stubs = 0, longestStub = 0;
+            for (int i = 0; i < blocks.Count; i++)
+            {
+                var run = blocks[i];
+                bool deadEnd = (run[0].adjacentTaxiwayNodes?.Count ?? 0) <= 1
+                               || (run[run.Count - 1].adjacentTaxiwayNodes?.Count ?? 0) <= 1;
+                if (!deadEnd || run.Count < 2) continue;
+                stubs++;
+                if (run.Count > longestStub) longestStub = run.Count;
+            }
+
             Plugin.Log.LogInfo(
                 $"Layout: {all.Count} nodes ({deadEnds} dead-end, {corridor} single-lane, {junctions} junction, "
                 + $"{corridorShare:F0}% corridor) -> {blocks.Count} block(s), "
-                + $"length min {shortest} / mean {mean:F1} / max {longest}.");
+                + $"length min {shortest} / mean {mean:F1} / max {longest}; "
+                + $"{stubs} dead-end branch(es) of 2+ nodes, longest {longestStub}.");
 
             if (blocks.Count == 0)
             {
