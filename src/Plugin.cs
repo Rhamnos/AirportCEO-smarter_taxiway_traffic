@@ -28,6 +28,7 @@ namespace AdvancedTaxiways
         internal static ConfigEntry<int> OpposingScanNodes;
         internal static ConfigEntry<int> MinBlockNodes;
         internal static ConfigEntry<float> BlockHoldMargin;
+        internal static ConfigEntry<float> MaxPushbackHold;
         internal static ConfigEntry<float> SummaryInterval;
         internal static ConfigEntry<int> TailSmall;
         internal static ConfigEntry<int> TailMedium;
@@ -135,6 +136,13 @@ namespace AdvancedTaxiways
             TailLarge = Config.Bind("Blocks", "Tail nodes, large", 8,
                 new ConfigDescription("As above for large aircraft. Vanilla's look-back is 8.",
                     new AcceptableValueRange<int>(1, 20)));
+
+            MaxPushbackHold = Config.Bind("Blocks", "Pushback hold warning", 90f,
+                new ConfigDescription(
+                    "Seconds a pushback may be held at its stand before a warning is logged. It keeps " +
+                    "holding after that — releasing it into oncoming traffic would create the head-on " +
+                    "the hold exists to prevent — but a ramp starved of departures is worth knowing about.",
+                    new AcceptableValueRange<float>(10f, 600f)));
 
             BlockHoldMargin = Config.Bind("Blocks", "Hold margin", 2f,
                 new ConfigDescription(

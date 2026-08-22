@@ -313,6 +313,7 @@ namespace AdvancedTaxiways
             nextCheck = Time.time + Plugin.OvertakeInterval.Value;
 
             PruneSettled();
+            PushbackHolds.Prune();
 
             var atc = Resolve(ref airTraffic);
             if (atc == null) return;
@@ -776,7 +777,7 @@ namespace AdvancedTaxiways
             bool oInTheWay = StandsInTheWayOf(o, oPath, m, mPath);
 
             AircraftController winner, loser;
-            SmoothPath<TaxiwayNode> winnerPath;
+            SmoothPath<TaxiwayNode> winnerPath, loserPath;
             string why;
 
             if (mInTheWay && oInTheWay)
@@ -799,6 +800,7 @@ namespace AdvancedTaxiways
                 winner = mWins ? m : o;
                 loser = mWins ? o : m;
                 winnerPath = mWins ? mPath : oPath;
+                loserPath = mWins ? oPath : mPath;
                 why = "already committed";
             }
             else
@@ -822,6 +824,23 @@ namespace AdvancedTaxiways
                 winner = mWins ? m : o;
                 loser = mWins ? o : m;
                 winnerPath = mWins ? mPath : oPath;
+                loserPath = mWins ? oPath : mPath;
+            }
+
+            // If the loser has not left its stand yet, hold it there. Queue order alone
+            // cannot stop a pushback: GoToPositionDirect reverses without consulting
+            // occupancy, so by the time any rule applies the aeroplane is already in the
+            // connector. The gate before it is the only point where this is still
+            // preventable, and waiting at a stand costs nothing.
+            if (IsParkedForPushback(loser, loserPath))
+            {
+                PushbackHolds.Apply(loser.ReferenceID, loserPath.nodes[0]);
+                if (Plugin.OvertakeLogging.Value)
+                {
+                    Plugin.Log.LogInfo(
+                        $"Gate hold: {Tag(loser)} {loser.ReferenceID} kept at its stand for "
+                        + $"{Tag(winner)} {winner.ReferenceID} ({why}).");
+                }
             }
 
             // Same reasoning as ResolveBlock: preventing an unrecoverable head-on outranks
@@ -860,6 +879,19 @@ namespace AdvancedTaxiways
                 if (theirs.nodes[j - 1] == next) return k;
             }
             return -1;
+        }
+
+        /// <summary>
+        /// Still at the stand, not yet reversing. A pushback never advances TargetIndex —
+        /// GoToPositionDirect moves it without following the node path — so position is the
+        /// only way to tell the two apart, and only the former can still be held.
+        /// </summary>
+        private static bool IsParkedForPushback(AircraftController ac, SmoothPath<TaxiwayNode> path)
+        {
+            if (ac?.am == null || ac.am.AircraftAction != Enums.AircraftAction.PushBack) return false;
+            if (path?.nodes == null || path.nodes.Length == 0 || path.nodes[0] == null) return false;
+
+            return Utils.GetDistance2D(ac.Position, path.nodes[0].worldPosition) > PhysicalTail(ac.am) * 4f;
         }
 
         /// <summary>How many nodes the two routes share continuously from this point.</summary>
