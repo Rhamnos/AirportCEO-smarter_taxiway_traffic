@@ -535,6 +535,7 @@ namespace AdvancedTaxiways
         private readonly HashSet<int> blocksSeen = new HashSet<int>();
         private readonly List<int> staleBlocks = new List<int>();
         private readonly HashSet<string> opposingPairsSeen = new HashSet<string>();
+        private readonly Dictionary<TaxiwayNode, int> otherIndex = new Dictionary<TaxiwayNode, int>();
 
         // Who is currently behind whom, derived from the node queues each sweep.
         private readonly Dictionary<string, List<string>> waitsFor = new Dictionary<string, List<string>>();
@@ -746,20 +747,30 @@ namespace AdvancedTaxiways
                     {
                         if (cur.Value == mID) continue;
                         if (!opposingPairsSeen.Add(PairKey(mID, cur.Value))) continue;
-                        ResolveOpposingPair(m, mPath, k, atc.GetAircraftByReferenceID(cur.Value));
+                        ResolveOpposingPair(m, mPath, from, to, atc.GetAircraftByReferenceID(cur.Value));
                     }
                 }
             }
         }
 
-        private void ResolveOpposingPair(AircraftController m, SmoothPath<TaxiwayNode> mPath, int index, AircraftController o)
+        private void ResolveOpposingPair(AircraftController m, SmoothPath<TaxiwayNode> mPath, int from, int to, AircraftController o)
         {
             if (o == null || o == m || o.am == null) return;
 
             var oPath = PathOf(o);
             if (oPath?.nodes == null || oPath.nodes.Length == 0) return;
             if (ContestedNodeOf(o, oPath) == null) return;
-            if (Classify(mPath, index, oPath) != Shared.Opposite) return;
+
+            // Search the whole window for a point where the two run head-on, rather than
+            // judging by the first node they happen to share.
+            //
+            // Two aircraft share many nodes and the relationship differs along them: same
+            // direction down the main taxiway, opposing on the ramp connector. Classifying
+            // only the first shared node and then marking the pair handled meant the node
+            // where they genuinely conflict was never looked at — zero head-on resolutions
+            // in a session that deadlocked on exactly that connector.
+            int index = FindOpposingIndex(mPath, from, to, oPath);
+            if (index < 0) return;
 
             bool mInTheWay = StandsInTheWayOf(m, mPath, o, oPath);
             bool oInTheWay = StandsInTheWayOf(o, oPath, m, mPath);
@@ -824,6 +835,31 @@ namespace AdvancedTaxiways
                     $"Head-on: {Tag(winner)} {winner.ReferenceID} goes, {Tag(loser)} {loser.ReferenceID} "
                     + $"holds off ({why}{(onlyWay ? ", only way through" : "")}).");
             }
+        }
+
+        /// <summary>
+        /// First index in the window where the two routes run head-on, or -1. Their route is
+        /// indexed once up front so each step is a dictionary lookup rather than a rescan.
+        /// </summary>
+        private int FindOpposingIndex(SmoothPath<TaxiwayNode> mine, int from, int to, SmoothPath<TaxiwayNode> theirs)
+        {
+            otherIndex.Clear();
+            for (int j = 0; j < theirs.nodes.Length; j++)
+            {
+                var node = theirs.nodes[j];
+                if (node != null && !otherIndex.ContainsKey(node)) otherIndex[node] = j;
+            }
+
+            int last = Mathf.Min(to, mine.nodes.Length - 1);
+            for (int k = from; k < last; k++)
+            {
+                var here = mine.nodes[k];
+                var next = mine.nodes[k + 1];
+                if (here == null || next == null) continue;
+                if (!otherIndex.TryGetValue(here, out int j) || j == 0) continue;
+                if (theirs.nodes[j - 1] == next) return k;
+            }
+            return -1;
         }
 
         /// <summary>How many nodes the two routes share continuously from this point.</summary>
