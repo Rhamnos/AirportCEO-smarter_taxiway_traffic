@@ -904,10 +904,22 @@ namespace AdvancedTaxiways
             int tail = Mathf.Max(0, reached - PhysicalTail(x.am));
             int from = Mathf.Clamp(y.TargetIndex, 0, yPath.nodes.Length - 1);
 
+            // Only ground it is genuinely NEAR. Path index alone is not position: an
+            // aircraft queued to push back sits at index 0 while still parked at its stand,
+            // tens of metres from that node, and counting it as standing there made a
+            // parked aeroplane look immovable. Both sides then read as committed and the
+            // head-on became unresolvable — when in truth one of them had not moved.
+            //
+            // For an aircraft that really is taxiing this changes nothing: every node from
+            // its tail to its current one is within this radius by construction.
+            float radius = PhysicalTail(x.am) * 4f;
+
             for (int i = tail; i <= reached; i++)
             {
                 var node = xPath.nodes[i];
                 if (node == null) continue;
+                if (Utils.GetDistance2D(x.Position, node.worldPosition) > radius) continue;
+
                 for (int j = from; j < yPath.nodes.Length; j++)
                 {
                     if (yPath.nodes[j] == node) return true;
