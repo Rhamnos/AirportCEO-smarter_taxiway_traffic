@@ -881,6 +881,25 @@ namespace AdvancedTaxiways
             return -1;
         }
 
+        /// <summary>Do any of these path nodes lie on the other aircraft's remaining route?</summary>
+        private static bool SharesRemainingGround(SmoothPath<TaxiwayNode> xPath, int from, int count,
+                                                  AircraftController y, SmoothPath<TaxiwayNode> yPath)
+        {
+            int last = Mathf.Min(xPath.nodes.Length - 1, from + count);
+            int start = Mathf.Clamp(y.TargetIndex, 0, yPath.nodes.Length - 1);
+
+            for (int i = from; i <= last; i++)
+            {
+                var node = xPath.nodes[i];
+                if (node == null) continue;
+                for (int j = start; j < yPath.nodes.Length; j++)
+                {
+                    if (yPath.nodes[j] == node) return true;
+                }
+            }
+            return false;
+        }
+
         /// <summary>
         /// Still at the stand, not yet reversing. A pushback never advances TargetIndex —
         /// GoToPositionDirect moves it without following the node path — so position is the
@@ -920,17 +939,25 @@ namespace AdvancedTaxiways
         private static bool StandsInTheWayOf(AircraftController x, SmoothPath<TaxiwayNode> xPath,
                                              AircraftController y, SmoothPath<TaxiwayNode> yPath)
         {
-            // A queued pushback is parked at its stand. Its route *starts* at the connector,
-            // so index 0 looks like ground it occupies — but it has not moved, and waiting
-            // at a stand costs nothing.
+            // A pushback is committed the moment it leads its first node, not when it
+            // physically moves.
             //
-            // Getting this wrong is what turns a single-entrance ramp into an unrecoverable
-            // one: a genuinely committed arrival plus a still-parked departure both read as
-            // "in the way", the pair falls into the both-committed branch, and nothing is
-            // done. Excluding the parked aircraft lets the arrival win and the departure
-            // simply hold at its stand until the connector is free -- which is the outcome
-            // that was wanted, and it costs the departure nothing to wait there.
-            if (IsWaitingToPushBack(x, xPath)) return false;
+            // Everything hinges on what can still be stopped. While it is queued at the
+            // gate — not yet leading nodes[0] — it is holdable, so it should yield and the
+            // other aircraft may proceed. Once it leads that node it has passed the gate,
+            // and GoToPositionDirect will reverse it into the connector without consulting
+            // occupancy, occupee lists or anything else. Nothing downstream can prevent
+            // that, so it is committed in the only sense that matters and the OTHER
+            // aircraft is the one that has to hold.
+            //
+            // Judging this by physical position instead — "it is still parked, so it is not
+            // in the way" — is true and useless: it let arrivals into a connector that a
+            // departure was about to reverse into unstoppably.
+            if (x.am.AircraftAction == Enums.AircraftAction.PushBack)
+            {
+                if (IsWaitingToPushBack(x, xPath)) return false;   // still at the gate, can be held
+                return SharesRemainingGround(xPath, 0, PhysicalTail(x.am), y, yPath);
+            }
 
             int reached = Mathf.Clamp(x.TargetIndex, 0, xPath.nodes.Length - 1);
             int tail = Mathf.Max(0, reached - PhysicalTail(x.am));
