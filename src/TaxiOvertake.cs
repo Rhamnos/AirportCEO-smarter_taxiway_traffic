@@ -772,8 +772,11 @@ namespace AdvancedTaxiways
                 if (ShouldWarn("pair:" + PairKey(m.ReferenceID, o.ReferenceID)))
                 {
                     Plugin.Log.LogWarning(
-                        $"Head-on at a junction, both already committed: {Tag(m)} {m.ReferenceID} and "
-                        + $"{Tag(o)} {o.ReferenceID}. Nothing to reorder; this needed preventing.");
+                        $"Head-on outside a block, both already committed: {Tag(m)} {m.ReferenceID} "
+                        + $"({m.am.AircraftAction}, idx {m.TargetIndex}) and {Tag(o)} {o.ReferenceID} "
+                        + $"({o.am.AircraftAction}, idx {o.TargetIndex}). Neither can back out and the game "
+                        + "has no tug, so nothing can be reordered — they entered before the scan saw them. "
+                        + "Raise Blocks / Junction scan distance for this layout.");
                 }
                 return;
             }
@@ -842,6 +845,18 @@ namespace AdvancedTaxiways
         private static bool StandsInTheWayOf(AircraftController x, SmoothPath<TaxiwayNode> xPath,
                                              AircraftController y, SmoothPath<TaxiwayNode> yPath)
         {
+            // A queued pushback is parked at its stand. Its route *starts* at the connector,
+            // so index 0 looks like ground it occupies — but it has not moved, and waiting
+            // at a stand costs nothing.
+            //
+            // Getting this wrong is what turns a single-entrance ramp into an unrecoverable
+            // one: a genuinely committed arrival plus a still-parked departure both read as
+            // "in the way", the pair falls into the both-committed branch, and nothing is
+            // done. Excluding the parked aircraft lets the arrival win and the departure
+            // simply hold at its stand until the connector is free -- which is the outcome
+            // that was wanted, and it costs the departure nothing to wait there.
+            if (IsWaitingToPushBack(x, xPath)) return false;
+
             int reached = Mathf.Clamp(x.TargetIndex, 0, xPath.nodes.Length - 1);
             int tail = Mathf.Max(0, reached - PhysicalTail(x.am));
             int from = Mathf.Clamp(y.TargetIndex, 0, yPath.nodes.Length - 1);
