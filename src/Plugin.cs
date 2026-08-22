@@ -124,11 +124,12 @@ namespace AdvancedTaxiways
             // Separate per class on purpose. A single multiplier moves all three together,
             // which flattens the differences between weight classes rather than tuning one.
             // Vanilla's look-back is 5 / 6 / 8 nodes; nodes are 4 m apart.
-            TailSmall = Config.Bind("Blocks", "Tail nodes, small", 4,
+            TailSmall = Config.Bind("Blocks", "Tail nodes, small", 5,
                 new ConfigDescription(
                     "Ground behind a small aircraft treated as physically occupied, in 4 m nodes. This " +
-                    "is what stops another aircraft being cleared into space one is standing in. Raise " +
-                    "it if small aircraft clip; vanilla's look-back is 5.",
+                    "is what stops another aircraft being cleared into space one is standing in. 5 matches " +
+                    "the game's own figure. Lower it if small aircraft leave more room behind them than " +
+                    "you like; raise it if they ever clip.",
                     new AcceptableValueRange<int>(1, 20)));
 
             TailMedium = Config.Bind("Blocks", "Tail nodes, medium", 6,
