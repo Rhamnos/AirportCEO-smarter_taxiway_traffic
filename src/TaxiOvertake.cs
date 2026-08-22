@@ -564,6 +564,7 @@ namespace AdvancedTaxiways
         private void EnforceBlocks(AircraftController[] all, AirTrafficController atc)
         {
             TaxiwayBlocks.EnsureBuilt();
+            TaxiwayBridges.EnsureBuilt();
             if (TaxiwayBlocks.Count == 0) return;
 
             foreach (var entry in claimsByBlock)

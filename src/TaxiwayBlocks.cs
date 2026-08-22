@@ -236,6 +236,10 @@ namespace AdvancedTaxiways
     internal static class BlockRebuildPatch
     {
         [HarmonyPostfix]
-        private static void Postfix() => TaxiwayBlocks.Invalidate();
+        private static void Postfix()
+        {
+            TaxiwayBlocks.Invalidate();
+            TaxiwayBridges.Invalidate();
+        }
     }
 }
