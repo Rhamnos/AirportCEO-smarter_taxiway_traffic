@@ -228,18 +228,53 @@ namespace AdvancedTaxiways
     }
 
     /// <summary>
-    /// Blocks are derived state, so they are rebuilt wherever the game rebuilds the
-    /// taxiway graph. Marking dirty rather than recomputing here keeps a burst of edits
-    /// (dragging out a taxiway) to one rebuild.
+    /// Blocks and bridges are derived from the adjacency graph, so they have to be
+    /// invalidated wherever that graph changes. Marking dirty rather than recomputing keeps
+    /// a burst of edits — dragging out a taxiway — to a single rebuild.
+    ///
+    /// <c>UpdateAllTaxiwayNodes</c> covers building and demolishing: `TaxiwayNodeModel`
+    /// calls it from both `UpdateBuilders` and `Remove`, and stands, runways and runway
+    /// entrances all call it too.
+    ///
+    /// It does **not** cover the one-way toggle. `SetOneWay` and `SetCurrentOneWay`
+    /// (TaxiwayNodeModel.cs:330-348) call `UpdateOneWayStatus` and then
+    /// `UpdateAllRunwayConnections` — never `UpdateAllTaxiwayNodes`. That path edits
+    /// adjacency on one node only, and since bridges are computed from *mutual* adjacency
+    /// it is precisely the edit that changes the answer. Hence the two node-level hooks
+    /// below, which between them catch every adjacency change whatever caused it.
     /// </summary>
-    [HarmonyPatch(typeof(TaxiwayController), nameof(TaxiwayController.UpdateAllTaxiwayNodes))]
-    internal static class BlockRebuildPatch
+    internal static class GraphInvalidation
     {
-        [HarmonyPostfix]
-        private static void Postfix()
+        internal static void Mark()
         {
             TaxiwayBlocks.Invalidate();
             TaxiwayBridges.Invalidate();
         }
+    }
+
+    [HarmonyPatch(typeof(TaxiwayController), nameof(TaxiwayController.UpdateAllTaxiwayNodes))]
+    internal static class BlockRebuildPatch
+    {
+        [HarmonyPostfix]
+        private static void Postfix() => GraphInvalidation.Mark();
+    }
+
+    /// <summary>Any single node rebuilding its neighbours — the catch-all.</summary>
+    [HarmonyPatch(typeof(TaxiwayNode), nameof(TaxiwayNode.UpdateTaxiwayNode))]
+    internal static class NodeRebuildPatch
+    {
+        [HarmonyPostfix]
+        private static void Postfix() => GraphInvalidation.Mark();
+    }
+
+    /// <summary>
+    /// One-way edge removal. Runs *after* UpdateTaxiwayNode in `UpdateOneWayStatus`, so the
+    /// earlier hook would have marked the graph dirty before these edges were taken out.
+    /// </summary>
+    [HarmonyPatch(typeof(TaxiwayNode), nameof(TaxiwayNode.SetOneWayValues), new[] { typeof(int) })]
+    internal static class OneWayPatch
+    {
+        [HarmonyPostfix]
+        private static void Postfix() => GraphInvalidation.Mark();
     }
 }
