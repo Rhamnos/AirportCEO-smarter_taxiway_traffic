@@ -909,7 +909,7 @@ namespace AdvancedTaxiways
             else
             {
                 var node = mPath.nodes[index];
-                float run = SharedRunLength(mPath, index, oPath) * 4f;
+                float run = SharedRunLength(mPath, index, oPath);
                 float dM = Utils.GetDistance2D(m.Position, node.worldPosition);
                 float dO = Utils.GetDistance2D(o.Position, node.worldPosition);
 
@@ -1022,9 +1022,13 @@ namespace AdvancedTaxiways
             return IsWaitingToPushBack(ac, path);
         }
 
-        /// <summary>How many nodes the two routes share continuously from this point.</summary>
-        private static int SharedRunLength(SmoothPath<TaxiwayNode> mine, int index, SmoothPath<TaxiwayNode> theirs)
+        /// <summary>
+        /// How far the two routes run together from this point, in metres — measured, not
+        /// counted, because a diagonal step is 4*sqrt(2) rather than 4.
+        /// </summary>
+        private static float SharedRunLength(SmoothPath<TaxiwayNode> mine, int index, SmoothPath<TaxiwayNode> theirs)
         {
+            float metres = 0f;
             int run = 0;
             for (int i = index; i < mine.nodes.Length && run < 200; i++)
             {
@@ -1035,9 +1039,10 @@ namespace AdvancedTaxiways
                 for (int j = 0; j < theirs.nodes.Length && !onTheirs; j++) onTheirs = theirs.nodes[j] == node;
                 if (!onTheirs) break;
 
+                if (run > 0) metres += Utils.GetDistance2D(mine.nodes[i - 1].worldPosition, node.worldPosition);
                 run++;
             }
-            return Mathf.Max(1, run);
+            return Mathf.Max(4f, metres);
         }
 
         /// <summary>
@@ -1080,7 +1085,17 @@ namespace AdvancedTaxiways
             //
             // For an aircraft that really is taxiing this changes nothing: every node from
             // its tail to its current one is within this radius by construction.
-            float radius = PhysicalTail(x.am) * 4f;
+            // Measured, not assumed: PhysicalTail is a node count, and on a diagonal run
+            // those nodes span nearly 30% more ground than 4 m each.
+            float radius = 0f;
+            for (int i = tail + 1; i <= reached; i++)
+            {
+                if (xPath.nodes[i] != null && xPath.nodes[i - 1] != null)
+                {
+                    radius += Utils.GetDistance2D(xPath.nodes[i - 1].worldPosition, xPath.nodes[i].worldPosition);
+                }
+            }
+            radius = Mathf.Max(radius, 4f);
 
             for (int i = tail; i <= reached; i++)
             {
@@ -1226,7 +1241,7 @@ namespace AdvancedTaxiways
                 // constant either hands the token over mid-traverse on the long one or lets
                 // the short one starve the other side. Nodes are 4 m apart and taxi speed is
                 // 10 m/s, so traversing costs 0.4 s per node; allow a multiple of that.
-                float traverse = TaxiwayBlocks.Length(block) * 0.4f;
+                float traverse = TaxiwayBlocks.Metres(block) / 10f;   // 10 m/s taxi speed
                 float allowed = Mathf.Max(MinimumBlockHold, traverse * Plugin.BlockHoldMargin.Value);
                 bool starving = !insideOwning && Time.time - blockHeldSince[block] > allowed;
 
@@ -1353,7 +1368,7 @@ namespace AdvancedTaxiways
         /// </summary>
         private int DecideBlockOwner(int block, List<BlockClaim> claims, out bool ownerInside, out string reason)
         {
-            float traverse = TaxiwayBlocks.Length(block) * 4f;
+            float traverse = TaxiwayBlocks.Metres(block);
 
             float nearA = float.MaxValue, nearB = float.MaxValue;
             float lengthA = 0f, lengthB = 0f;
@@ -1403,7 +1418,7 @@ namespace AdvancedTaxiways
         /// </summary>
         private static bool OpposingWouldClearFirst(int block, List<BlockClaim> claims, int owning)
         {
-            float traverse = TaxiwayBlocks.Length(block) * 4f;
+            float traverse = TaxiwayBlocks.Metres(block);
             float nearOwner = float.MaxValue, nearOther = float.MaxValue, otherLength = 0f;
 
             for (int i = 0; i < claims.Count; i++)

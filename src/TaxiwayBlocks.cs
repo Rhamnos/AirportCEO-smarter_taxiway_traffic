@@ -31,6 +31,7 @@ namespace AdvancedTaxiways
         private static readonly Dictionary<TaxiwayNode, int> blockOf = new Dictionary<TaxiwayNode, int>();
         private static readonly Dictionary<TaxiwayNode, int> orderInBlock = new Dictionary<TaxiwayNode, int>();
         private static readonly List<List<TaxiwayNode>> blocks = new List<List<TaxiwayNode>>();
+        private static readonly List<float> blockMetres = new List<float>();
 
         private static readonly HashSet<TaxiwayNode> visited = new HashSet<TaxiwayNode>();
         private static readonly List<TaxiwayNode> run = new List<TaxiwayNode>();
@@ -40,11 +41,26 @@ namespace AdvancedTaxiways
 
         public static int Count => blocks.Count;
 
-        /// <summary>Nodes in a block, for sizing how long it takes to traverse.</summary>
+        /// <summary>Nodes in a block.</summary>
         public static int Length(int blockId)
         {
             EnsureBuilt();
             return blockId >= 0 && blockId < blocks.Count ? blocks[blockId].Count : 0;
+        }
+
+        /// <summary>
+        /// How far it actually is from one end of a block to the other, in metres.
+        ///
+        /// Not node count times four. A cardinal step between nodes is 4 m but a diagonal
+        /// one is 4*sqrt(2), about 5.66 — so a diagonal run is nearly 30% longer than
+        /// counting nodes suggests. Estimating it the short way meant a block token handed
+        /// over while the owning aircraft was still traversing, and "clears first" saying
+        /// yes to a run that would not in fact be clear in time.
+        /// </summary>
+        public static float Metres(int blockId)
+        {
+            EnsureBuilt();
+            return blockId >= 0 && blockId < blockMetres.Count ? blockMetres[blockId] : 0f;
         }
 
         /// <summary>
@@ -67,6 +83,7 @@ namespace AdvancedTaxiways
             blockOf.Clear();
             orderInBlock.Clear();
             blocks.Clear();
+            blockMetres.Clear();
         }
 
         /// <summary>Block id for a node, or -1 if it is a junction or not in a corridor.</summary>
@@ -133,6 +150,14 @@ namespace AdvancedTaxiways
                 int id = blocks.Count;
                 var nodes = new List<TaxiwayNode>(run);
                 blocks.Add(nodes);
+
+                float metres = 0f;
+                for (int k = 1; k < nodes.Count; k++)
+                {
+                    metres += Utils.GetDistance2D(nodes[k - 1].worldPosition, nodes[k].worldPosition);
+                }
+                blockMetres.Add(metres);
+
                 for (int k = 0; k < nodes.Count; k++)
                 {
                     blockOf[nodes[k]] = id;
