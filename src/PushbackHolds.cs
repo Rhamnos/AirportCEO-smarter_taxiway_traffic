@@ -73,6 +73,22 @@ namespace AdvancedTaxiways
             }
         }
 
+        /// <summary>
+        /// Has this aircraft yielded for longer than anyone should be asked to?
+        ///
+        /// The rule that a parked pushback always gives way is right almost always, but on
+        /// a ramp with a steady stream of arrivals it means a stand is never released. Once
+        /// a departure has waited this long it stops automatically losing and is judged on
+        /// the normal ladder instead. It still cannot beat an aircraft that is physically
+        /// committed — that check comes first and is not affected — so this frees a starved
+        /// stand without ever creating the head-on the yield rule exists to prevent.
+        /// </summary>
+        public static bool HeldTooLong(string referenceID)
+        {
+            return holds.TryGetValue(referenceID, out var hold)
+                   && Time.time - hold.Since > Plugin.MaxPushbackHold.Value;
+        }
+
         public static bool IsHeld(string referenceID, TaxiwayNode node)
         {
             return holds.TryGetValue(referenceID, out var hold)

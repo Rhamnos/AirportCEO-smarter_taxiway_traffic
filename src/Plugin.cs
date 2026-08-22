@@ -27,6 +27,8 @@ namespace AdvancedTaxiways
         internal static ConfigEntry<bool> OpposingRuns;
         internal static ConfigEntry<int> OpposingScanNodes;
         internal static ConfigEntry<int> MinBlockNodes;
+        internal static ConfigEntry<float> RebuildDelay;
+        internal static ConfigEntry<float> SweepBudgetMs;
         internal static ConfigEntry<float> BlockHoldMargin;
         internal static ConfigEntry<float> MaxPushbackHold;
         internal static ConfigEntry<float> SummaryInterval;
@@ -160,6 +162,22 @@ namespace AdvancedTaxiways
                     "quiet hour and two in a saturated one mean opposite things. 0 disables it.",
                     new AcceptableValueRange<float>(0f, 600f)));
 
+            SweepBudgetMs = Config.Bind("Overtaking", "Time budget", 4f,
+                new ConfigDescription(
+                    "Milliseconds this mod may spend per pass before stopping and finishing next time. " +
+                    "A safety valve for very large airports, where the work grows with both aircraft " +
+                    "count and route length. Lower it if you see stutter that tracks traffic volume.",
+                    new AcceptableValueRange<float>(1f, 50f)));
+
+            RebuildDelay = Config.Bind("Blocks", "Rebuild delay", 3f,
+                new ConfigDescription(
+                    "Seconds of quiet after the last taxiway edit before the layout is re-analysed. " +
+                    "Real seconds, not game time - this is waiting for you to stop building, which has " +
+                    "nothing to do with game speed. A whole drag collapses into one rebuild whatever " +
+                    "this is set to; a longer value only delays when single-lane handling comes back, " +
+                    "so there is little reason to raise it.",
+                    new AcceptableValueRange<float>(0.5f, 60f)));
+
             MinBlockNodes = Config.Bind("Blocks", "Minimum block length", 2,
                 new ConfigDescription(
                     "Shortest run of single-lane taxiway treated as a block. A single node between two " +
@@ -196,8 +214,11 @@ namespace AdvancedTaxiways
                 "ships disabled. Worth leaving on even with overtaking off, since the game creates " +
                 "the same inconsistency through its own single-node SortUp. Logs a warning when it fires.");
 
-            OvertakeLogging = Config.Bind("Overtaking", "Log overtakes", true,
-                "Write a line to the BepInEx log every time one aircraft is moved ahead of another.");
+            OvertakeLogging = Config.Bind("Overtaking", "Log overtakes", false,
+                "Write a line to the log for every routine decision - who went first at a junction, who was held " +
+                "at a stand. Off by default because it is thousands of lines an hour. Turn it on before " +
+                "reproducing a problem you want to report. Warnings about aircraft that genuinely could " +
+                "not be freed are always logged either way.");
 
         }
     }

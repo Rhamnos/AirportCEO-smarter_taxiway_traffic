@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using HarmonyLib;
 using Nodes;
+using UnityEngine;
 
 namespace AdvancedTaxiways
 {
@@ -35,6 +36,7 @@ namespace AdvancedTaxiways
         private static readonly List<TaxiwayNode> run = new List<TaxiwayNode>();
 
         private static bool dirty = true;
+        private static float readyAt;
 
         public static int Count => blocks.Count;
 
@@ -45,7 +47,27 @@ namespace AdvancedTaxiways
             return blockId >= 0 && blockId < blocks.Count ? blocks[blockId].Count : 0;
         }
 
-        public static void Invalidate() => dirty = true;
+        /// <summary>
+        /// Marks the derived data stale and schedules a rebuild after a quiet period.
+        ///
+        /// The maps are cleared immediately rather than left stale, because a demolished
+        /// node stays referenced by a cached block — TaxiwayNode is a plain class, so a
+        /// removed one is a dangling reference rather than a null. Running with no blocks
+        /// is safe: the pairwise head-on pass skips nodes a block already owns, so with no
+        /// blocks it simply covers everything itself.
+        ///
+        /// Time.unscaledTime, not Time.time. This is debouncing a human dragging out a
+        /// taxiway, which has nothing to do with how fast the simulation is running.
+        /// </summary>
+        public static void Invalidate()
+        {
+            dirty = true;
+            readyAt = Time.unscaledTime + Plugin.RebuildDelay.Value;
+
+            blockOf.Clear();
+            orderInBlock.Clear();
+            blocks.Clear();
+        }
 
         /// <summary>Block id for a node, or -1 if it is a junction or not in a corridor.</summary>
         public static int BlockAt(TaxiwayNode node)
@@ -92,9 +114,6 @@ namespace AdvancedTaxiways
             if (all == null || all.Count == 0) return;
 
             dirty = false;
-            blockOf.Clear();
-            orderInBlock.Clear();
-            blocks.Clear();
 
             visited.Clear();
 
@@ -133,13 +152,15 @@ namespace AdvancedTaxiways
         /// </summary>
         private static void LogFingerprint(System.Collections.Generic.List<TaxiwayNode> all)
         {
-            int deadEnds = 0, corridor = 0, junctions = 0;
+            int deadEnds = 0, corridor = 0, junctions = 0, planned = 0;
             for (int i = 0; i < all.Count; i++)
             {
-                var adjacent = all[i]?.adjacentTaxiwayNodes;
-                if (adjacent == null) continue;
-                if (adjacent.Count <= 1) deadEnds++;
-                else if (adjacent.Count == 2) corridor++;
+                if (all[i] == null) continue;
+                if (!all[i].activated) { planned++; continue; }
+
+                int degree = ActiveDegree(all[i]);
+                if (degree <= 1) deadEnds++;
+                else if (degree == 2) corridor++;
                 else junctions++;
             }
 
@@ -166,15 +187,14 @@ namespace AdvancedTaxiways
             for (int i = 0; i < blocks.Count; i++)
             {
                 var run = blocks[i];
-                bool deadEnd = (run[0].adjacentTaxiwayNodes?.Count ?? 0) <= 1
-                               || (run[run.Count - 1].adjacentTaxiwayNodes?.Count ?? 0) <= 1;
+                bool deadEnd = ActiveDegree(run[0]) <= 1 || ActiveDegree(run[run.Count - 1]) <= 1;
                 if (!deadEnd || run.Count < 2) continue;
                 stubs++;
                 if (run.Count > longestStub) longestStub = run.Count;
             }
 
             Plugin.Log.LogInfo(
-                $"Layout: {all.Count} nodes ({deadEnds} dead-end, {corridor} single-lane, {junctions} junction, "
+                $"Layout: {all.Count} nodes ({planned} planned/unbuilt, {deadEnds} dead-end, {corridor} single-lane, {junctions} junction, "
                 + $"{corridorShare:F0}% corridor) -> {blocks.Count} block(s), "
                 + $"length min {shortest} / mean {mean:F1} / max {longest}; "
                 + $"{stubs} dead-end branch(es) of 2+ nodes, longest {longestStub}.");
@@ -187,10 +207,39 @@ namespace AdvancedTaxiways
             }
         }
 
-        private static bool IsCorridor(TaxiwayNode node)
+        /// <summary>
+        /// Built taxiway only. Nodes drawn in planning mode but not yet constructed sit in
+        /// the same list and in each other's neighbour lists — `SearchForNode` returns
+        /// whatever is at a position and never checks `activated`. A* does check it
+        /// (PathFindingAircraft.cs:73), so aircraft never route over planned taxiway, and a
+        /// structural view that counts it diverges from where aircraft can actually go.
+        ///
+        /// Both errors run the wrong way. A planned spur touching a real corridor node
+        /// raises its degree to 3, so a genuine single-lane stretch stops being a block and
+        /// loses its exclusion; a planned second connector makes a real bottleneck look like
+        /// it has an alternative. Each makes the mod *less* careful exactly where capacity
+        /// has been drawn but not built.
+        /// </summary>
+        private static bool Usable(TaxiwayNode node) => node != null && node.activated;
+
+        private static int ActiveDegree(TaxiwayNode node)
         {
             var adjacent = node.adjacentTaxiwayNodes;
-            return adjacent != null && adjacent.Count <= 2 && adjacent.Count > 0;
+            if (adjacent == null) return 0;
+
+            int n = 0;
+            for (int i = 0; i < adjacent.Count; i++)
+            {
+                if (Usable(adjacent[i])) n++;
+            }
+            return n;
+        }
+
+        private static bool IsCorridor(TaxiwayNode node)
+        {
+            if (!Usable(node)) return false;
+            int degree = ActiveDegree(node);
+            return degree > 0 && degree <= 2;
         }
 
         private static TaxiwayNode WalkToEnd(TaxiwayNode from)
@@ -206,7 +255,7 @@ namespace AdvancedTaxiways
                 for (int i = 0; i < adjacent.Count; i++)
                 {
                     var candidate = adjacent[i];
-                    if (candidate == null || candidate == previous) continue;
+                    if (!Usable(candidate) || candidate == previous) continue;
                     if (!IsCorridor(candidate) || seen.Contains(candidate)) continue;
                     next = candidate;
                     break;
@@ -234,7 +283,7 @@ namespace AdvancedTaxiways
                 for (int i = 0; i < adjacent.Count; i++)
                 {
                     var candidate = adjacent[i];
-                    if (candidate == null || candidate == previous) continue;
+                    if (!Usable(candidate) || candidate == previous) continue;
                     if (!IsCorridor(candidate) || visited.Contains(candidate)) continue;
                     next = candidate;
                     break;

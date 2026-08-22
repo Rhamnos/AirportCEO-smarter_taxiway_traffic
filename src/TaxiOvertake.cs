@@ -122,6 +122,20 @@ namespace AdvancedTaxiways
         }
 
         private DateTime now;
+        private readonly System.Diagnostics.Stopwatch sweepClock = new System.Diagnostics.Stopwatch();
+
+        /// <summary>
+        /// True once this sweep has used its time budget. Every pass checks it between
+        /// aircraft and stops cleanly.
+        ///
+        /// Nothing here is proportional to a fixed cost: each pass walks every aircraft's
+        /// remaining route, and the head-on pass indexes the other aircraft's route per
+        /// pair. On a big airport at high game speed — the sweep is on scaled time, so 3x
+        /// speed means three times as many sweeps per real second — that could add up to
+        /// something a player would feel as stutter. Stopping mid-sweep costs a little
+        /// responsiveness for one tick; the next sweep starts over with current data.
+        /// </summary>
+        private bool OverBudget => sweepClock.Elapsed.TotalMilliseconds > Plugin.SweepBudgetMs.Value;
         private AirTrafficController airTraffic;
         private TimeController clock;
 
@@ -342,15 +356,40 @@ namespace AdvancedTaxiways
             if (Time.time < nextCheck) return;
             nextCheck = Time.time + Plugin.OvertakeInterval.Value;
 
-            PruneSettled();
-            PushbackHolds.Prune();
-
+            // Resolved before the guard so a missing world is an early return, not a fault.
             var atc = Resolve(ref airTraffic);
             if (atc == null) return;
 
             var time = Resolve(ref clock);
             if (time == null) return;
             now = time.GetCurrentContinuousTime();
+
+            sweepClock.Restart();
+
+            try
+            {
+                Sweep(atc);
+            }
+            catch (Exception ex)
+            {
+                // An exception escaping Update is silent feature-death: Unity logs it, the
+                // game carries on at full frame rate, and the mod simply stops working while
+                // nothing looks wrong. That already happened once here. Containing it means a
+                // player without any way to diagnose this still gets a working game and one
+                // legible error rather than traffic that quietly stops behaving.
+                if (ShouldWarn("sweep-fault:" + ex.GetType().Name))
+                {
+                    Plugin.Log.LogError(
+                        "Taxiway logic faulted and was skipped for this tick. If aircraft start "
+                        + "behaving oddly, please report this with your Player.log:\n" + ex);
+                }
+            }
+        }
+
+        private void Sweep(AirTrafficController atc)
+        {
+            PruneSettled();
+            PushbackHolds.Prune();
 
             var all = atc.GetAircraftList();
 
@@ -369,7 +408,7 @@ namespace AdvancedTaxiways
                 EnforceOpposingPairs(all, atc);
             }
 
-            for (int i = 0; i < all.Length; i++)
+            for (int i = 0; i < all.Length && !OverBudget; i++)
             {
                 TryUnblock(all[i], atc);
             }
@@ -765,6 +804,8 @@ namespace AdvancedTaxiways
 
             for (int i = 0; i < all.Length; i++)
             {
+                if (OverBudget) break;
+
                 var m = all[i];
                 if (m == null || m.am == null) continue;
 
@@ -844,7 +885,8 @@ namespace AdvancedTaxiways
                 why = "already committed";
             }
             else if (mParked != oParked
-                     && !(mParked ? PriorityOf(m, mPath) : PriorityOf(o, oPath)).Protected)
+                     && !(mParked ? PriorityOf(m, mPath) : PriorityOf(o, oPath)).Protected
+                     && !PushbackHolds.HeldTooLong(mParked ? m.ReferenceID : o.ReferenceID))
             {
                 // A pushback still at its stand yields, and does not get to win on timing.
                 //

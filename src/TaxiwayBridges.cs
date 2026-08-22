@@ -31,10 +31,20 @@ namespace AdvancedTaxiways
 
         private static TaxiwayController controller;
         private static bool dirty = true;
+        private static float readyAt;
 
         public static int Count => bridges.Count;
 
-        public static void Invalidate() => dirty = true;
+        /// <summary>See TaxiwayBlocks.Invalidate — same debounce, same reason.</summary>
+        public static void Invalidate()
+        {
+            dirty = true;
+            readyAt = Time.unscaledTime + Plugin.RebuildDelay.Value;
+
+            index.Clear();
+            bridges.Clear();
+            culDeSac.Clear();
+        }
 
         /// <summary>Is the step between these two nodes the only two-way link across it?</summary>
         public static bool IsBridge(TaxiwayNode a, TaxiwayNode b)
@@ -63,6 +73,7 @@ namespace AdvancedTaxiways
         public static void EnsureBuilt()
         {
             if (!dirty) return;
+            if (Time.unscaledTime < readyAt) return;   // let a burst of edits settle first
 
             // Not Singleton<TaxiwayController>.Instance — an access before the object exists
             // latches it to null for the whole session. See the MODDING-NOTES entry.
@@ -71,13 +82,14 @@ namespace AdvancedTaxiways
             if (all == null || all.Count == 0) return;   // stay dirty until there is a graph
 
             dirty = false;
-            index.Clear();
-            bridges.Clear();
-            culDeSac.Clear();
 
+            // Built taxiway only. Nodes drawn in planning mode sit in the same list and in
+            // each other's neighbour lists — SearchForNode never checks `activated`. A* does
+            // (PathFindingAircraft.cs:73), so counting planned taxiway here would report a
+            // bottleneck as having an alternative route that aircraft cannot actually use.
             for (int i = 0; i < all.Count; i++)
             {
-                if (all[i] != null && !index.ContainsKey(all[i])) index[all[i]] = index.Count;
+                if (all[i] != null && all[i].activated && !index.ContainsKey(all[i])) index[all[i]] = index.Count;
             }
 
             int n = index.Count;
@@ -102,7 +114,8 @@ namespace AdvancedTaxiways
                 for (int i = 0; i < neighbours.Count; i++)
                 {
                     var other = neighbours[i];
-                    if (other == null || !index.TryGetValue(other, out int j)) continue;
+                    if (other == null || !other.activated) continue;          // planned, not built
+                    if (!index.TryGetValue(other, out int j)) continue;
 
                     bool reciprocal = other.adjacentTaxiwayNodes != null
                                       && other.adjacentTaxiwayNodes.Contains(node);
