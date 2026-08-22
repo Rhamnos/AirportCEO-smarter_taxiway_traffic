@@ -563,6 +563,7 @@ namespace AdvancedTaxiways
             public SmoothPath<TaxiwayNode> Path;
             public int Direction;     // +1 or -1 along the block's stored order
             public bool Inside;       // physically standing in the block
+            public bool Parked;       // queued to push back, start time unknown
             public float Distance;    // to the first block node on its route
             public TaxiwayNode Exit;  // first node beyond the block on its route, null if it ends inside
         }
@@ -812,6 +813,8 @@ namespace AdvancedTaxiways
 
             bool mInTheWay = StandsInTheWayOf(m, mPath, o, oPath);
             bool oInTheWay = StandsInTheWayOf(o, oPath, m, mPath);
+            bool mParked = IsParkedForPushback(m, mPath);
+            bool oParked = IsParkedForPushback(o, oPath);
 
             AircraftController winner, loser;
             SmoothPath<TaxiwayNode> winnerPath, loserPath;
@@ -839,6 +842,27 @@ namespace AdvancedTaxiways
                 winnerPath = mWins ? mPath : oPath;
                 loserPath = mWins ? oPath : mPath;
                 why = "already committed";
+            }
+            else if (mParked != oParked
+                     && !(mParked ? PriorityOf(m, mPath) : PriorityOf(o, oPath)).Protected)
+            {
+                // A pushback still at its stand yields, and does not get to win on timing.
+                //
+                // Every "clears first" estimate divides distance by taxi speed, which
+                // assumes the aircraft is about to move. A queued pushback is not: it may
+                // sit for minutes waiting for a truck. So it looks like it will be through
+                // the connector in seconds, wins the contest, gets released, and is still
+                // standing there when the other aircraft arrives — which is exactly how
+                // this deadlock kept forming.
+                //
+                // Yielding costs it nothing either way. Waiting at a stand blocks nobody;
+                // waiting in a corridor blocks everybody.
+                bool mWins = oParked;
+                winner = mWins ? m : o;
+                loser = mWins ? o : m;
+                winnerPath = mWins ? mPath : oPath;
+                loserPath = mWins ? oPath : mPath;
+                why = "other side is still at its stand";
             }
             else
             {
@@ -1089,6 +1113,7 @@ namespace AdvancedTaxiways
                 Path = path,
                 Direction = direction,
                 Inside = inside,
+                Parked = IsParkedForPushback(ac, path),
                 Distance = Utils.GetDistance2D(ac.Position, path.nodes[firstIndex].worldPosition),
                 Exit = exit,
             });
@@ -1291,6 +1316,7 @@ namespace AdvancedTaxiways
             float nearA = float.MaxValue, nearB = float.MaxValue;
             float lengthA = 0f, lengthB = 0f;
             bool insideA = false, insideB = false, protA = false, protB = false, exitA = false, exitB = false;
+            bool movingA = false, movingB = false;
 
             for (int i = 0; i < claims.Count; i++)
             {
@@ -1302,18 +1328,22 @@ namespace AdvancedTaxiways
                 {
                     if (c.Distance < nearA) nearA = c.Distance;
                     if (LengthOf(c.Aircraft.am) > lengthA) lengthA = LengthOf(c.Aircraft.am);
-                    insideA |= c.Inside; protA |= prot; exitA |= exits;
+                    insideA |= c.Inside; protA |= prot; exitA |= exits; movingA |= !c.Parked;
                 }
                 else
                 {
                     if (c.Distance < nearB) nearB = c.Distance;
                     if (LengthOf(c.Aircraft.am) > lengthB) lengthB = LengthOf(c.Aircraft.am);
-                    insideB |= c.Inside; protB |= prot; exitB |= exits;
+                    insideB |= c.Inside; protB |= prot; exitB |= exits; movingB |= !c.Parked;
                 }
             }
 
             int owner;
             if (insideA != insideB)                                { owner = insideA ? 1 : -1; reason = "occupied"; }
+            else if (protA != protB)                              { owner = protA ? 1 : -1; reason = "priority"; }
+            // A direction with nothing but parked pushbacks in it does not get the block on
+            // a timing estimate: none of them has a known start time.
+            else if (movingA != movingB)                          { owner = movingA ? 1 : -1; reason = "other side still at a stand"; }
             else if (nearA + traverse + lengthA < nearB)           { owner = 1;  reason = "clears first"; }
             else if (nearB + traverse + lengthB < nearA)           { owner = -1; reason = "clears first"; }
             else if (protA != protB)                      { owner = protA ? 1 : -1; reason = "priority"; }
