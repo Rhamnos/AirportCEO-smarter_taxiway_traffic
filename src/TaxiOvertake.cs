@@ -314,6 +314,22 @@ namespace AdvancedTaxiways
                 || action == Enums.AircraftAction.PushBackFromHangar;
         }
 
+        /// <summary>
+        /// Roughly how long the airframe is, in metres. PhysicalTail is about half its
+        /// length in 4 m nodes, so double it.
+        ///
+        /// This belongs in every "will it be clear in time" test. Those measure distance to
+        /// a node, but an aircraft is not clear of a node when its nose reaches the far
+        /// side — it is clear when its tail does. For a light single that is a rounding
+        /// error; for a widebody it is another eighteen nodes of travel, so judging by
+        /// distance alone lets a large aircraft commit to a corridor it will not actually
+        /// be out of before the opposing one arrives.
+        /// </summary>
+        private static float LengthOf(AircraftModel am)
+        {
+            return PhysicalTail(am) * 8f;
+        }
+
         private static bool IsDeparting(Enums.AircraftAction action)
         {
             return action == Enums.AircraftAction.TaxiingToRunway
@@ -832,8 +848,8 @@ namespace AdvancedTaxiways
                 float dO = Utils.GetDistance2D(o.Position, node.worldPosition);
 
                 bool mWins;
-                if (dM + run < dO) { mWins = true; why = "clears first"; }
-                else if (dO + run < dM) { mWins = false; why = "clears first"; }
+                if (dM + run + LengthOf(m.am) < dO) { mWins = true; why = "clears first"; }
+                else if (dO + run + LengthOf(o.am) < dM) { mWins = false; why = "clears first"; }
                 else
                 {
                     var pm = PriorityOf(m, mPath);
@@ -928,10 +944,16 @@ namespace AdvancedTaxiways
         /// </summary>
         private static bool IsParkedForPushback(AircraftController ac, SmoothPath<TaxiwayNode> path)
         {
-            if (ac?.am == null || !IsPushingBack(ac.am.AircraftAction)) return false;
-            if (path?.nodes == null || path.nodes.Length == 0 || path.nodes[0] == null) return false;
-
-            return Utils.GetDistance2D(ac.Position, path.nodes[0].worldPosition) > PhysicalTail(ac.am) * 4f;
+            // Holdable exactly while it is still in the gate loop, which is the same thing
+            // as not yet leading its first node. Nothing else can be held: past the gate,
+            // GoToPositionDirect moves it regardless.
+            //
+            // This used to test distance from nodes[0] against PhysicalTail * 4 — 16 m for a
+            // Small but 32 m for a Large. A large stand within 32 m of its connector would
+            // have read as "already moving", so widebodies would never have been gate-held
+            // at all while small aircraft were. A gate test has no business scaling with
+            // wingspan.
+            return IsWaitingToPushBack(ac, path);
         }
 
         /// <summary>How many nodes the two routes share continuously from this point.</summary>
@@ -1267,6 +1289,7 @@ namespace AdvancedTaxiways
             float traverse = TaxiwayBlocks.Length(block) * 4f;
 
             float nearA = float.MaxValue, nearB = float.MaxValue;
+            float lengthA = 0f, lengthB = 0f;
             bool insideA = false, insideB = false, protA = false, protB = false, exitA = false, exitB = false;
 
             for (int i = 0; i < claims.Count; i++)
@@ -1278,19 +1301,21 @@ namespace AdvancedTaxiways
                 if (c.Direction > 0)
                 {
                     if (c.Distance < nearA) nearA = c.Distance;
+                    if (LengthOf(c.Aircraft.am) > lengthA) lengthA = LengthOf(c.Aircraft.am);
                     insideA |= c.Inside; protA |= prot; exitA |= exits;
                 }
                 else
                 {
                     if (c.Distance < nearB) nearB = c.Distance;
+                    if (LengthOf(c.Aircraft.am) > lengthB) lengthB = LengthOf(c.Aircraft.am);
                     insideB |= c.Inside; protB |= prot; exitB |= exits;
                 }
             }
 
             int owner;
-            if (insideA != insideB)                       { owner = insideA ? 1 : -1; reason = "occupied"; }
-            else if (nearA + traverse < nearB)            { owner = 1;  reason = "clears first"; }
-            else if (nearB + traverse < nearA)            { owner = -1; reason = "clears first"; }
+            if (insideA != insideB)                                { owner = insideA ? 1 : -1; reason = "occupied"; }
+            else if (nearA + traverse + lengthA < nearB)           { owner = 1;  reason = "clears first"; }
+            else if (nearB + traverse + lengthB < nearA)           { owner = -1; reason = "clears first"; }
             else if (protA != protB)                      { owner = protA ? 1 : -1; reason = "priority"; }
             else if (exitA != exitB)                      { owner = exitA ? 1 : -1; reason = "can clear far end"; }
             else                                          { owner = nearA <= nearB ? 1 : -1; reason = "nearest"; }
@@ -1307,7 +1332,7 @@ namespace AdvancedTaxiways
         private static bool OpposingWouldClearFirst(int block, List<BlockClaim> claims, int owning)
         {
             float traverse = TaxiwayBlocks.Length(block) * 4f;
-            float nearOwner = float.MaxValue, nearOther = float.MaxValue;
+            float nearOwner = float.MaxValue, nearOther = float.MaxValue, otherLength = 0f;
 
             for (int i = 0; i < claims.Count; i++)
             {
@@ -1315,15 +1340,16 @@ namespace AdvancedTaxiways
                 {
                     if (claims[i].Distance < nearOwner) nearOwner = claims[i].Distance;
                 }
-                else if (claims[i].Distance < nearOther)
+                else
                 {
-                    nearOther = claims[i].Distance;
+                    if (claims[i].Distance < nearOther) nearOther = claims[i].Distance;
+                    if (LengthOf(claims[i].Aircraft.am) > otherLength) otherLength = LengthOf(claims[i].Aircraft.am);
                 }
             }
 
             return nearOther < float.MaxValue
                 && nearOwner < float.MaxValue
-                && nearOther + traverse < nearOwner;
+                && nearOther + traverse + otherLength < nearOwner;
         }
 
         /// <summary>Order-independent key so a pair is the same entry whichever way round it is seen.</summary>
