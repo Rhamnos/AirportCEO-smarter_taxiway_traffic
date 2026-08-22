@@ -14,7 +14,7 @@
 # creates a DUPLICATE Workshop item instead of updating the existing one.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-MODS="$HOME/.steam/debian-installation/steamapps/compatdata/673610/pfx/drive_c/users/steamuser/AppData/Roaming/Apoapsis Studios/Airport CEO/Mods/AdvancedTaxiways"
+MODS="$HOME/.steam/debian-installation/steamapps/compatdata/673610/pfx/drive_c/users/steamuser/AppData/Roaming/Apoapsis Studios/Airport CEO/Mods/SmarterTaxiwayTraffic"
 PLUGINS="$HOME/.steam/debian-installation/steamapps/common/Airport CEO/BepInEx/plugins"
 
 if pgrep -x "Airport CEO.exe" >/dev/null 2>&1; then
