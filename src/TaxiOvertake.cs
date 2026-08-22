@@ -813,10 +813,16 @@ namespace AdvancedTaxiways
                 winnerPath = mWins ? mPath : oPath;
             }
 
-            if (MoveAheadEverywhere(winner, loser, winnerPath) && lastChangedQueues > 0 && Plugin.OvertakeLogging.Value)
+            // Same reasoning as ResolveBlock: preventing an unrecoverable head-on outranks
+            // avoiding a recoverable ordering loop.
+            if (MoveAheadEverywhere(winner, loser, winnerPath, guardCycles: false)
+                && lastChangedQueues > 0 && Plugin.OvertakeLogging.Value)
             {
+                bool onlyWay = TaxiwayBridges.IsBridge(mPath.nodes[index],
+                                                       index + 1 < mPath.nodes.Length ? mPath.nodes[index + 1] : null);
                 Plugin.Log.LogInfo(
-                    $"Head-on: {Tag(winner)} {winner.ReferenceID} goes, {Tag(loser)} {loser.ReferenceID} holds off ({why}).");
+                    $"Head-on: {Tag(winner)} {winner.ReferenceID} goes, {Tag(loser)} {loser.ReferenceID} "
+                    + $"holds off ({why}{(onlyWay ? ", only way through" : "")}).");
             }
         }
 
@@ -1047,7 +1053,15 @@ namespace AdvancedTaxiways
                 for (int j = 0; j < claims.Count; j++)
                 {
                     if (claims[j].Direction == owning) continue;
-                    if (MoveAheadEverywhere(claims[i].Aircraft, claims[j].Aircraft, claims[i].Path)
+                    // guardCycles: false deliberately. Head-on exclusion is a safety
+                    // mechanism, not a throughput one, and the loop check was refusing it —
+                    // 211 refusals against a single successful head-on resolution in one
+                    // session. The trade is the wrong way round: an ordering loop is
+                    // recoverable, because the breaker can promote someone out of it, while
+                    // a head-on is not, because neither aircraft can reverse. Refusing to
+                    // prevent the unrecoverable failure in order to avoid a recoverable one
+                    // is backwards.
+                    if (MoveAheadEverywhere(claims[i].Aircraft, claims[j].Aircraft, claims[i].Path, guardCycles: false)
                         && lastChangedQueues > 0)
                     {
                         changedPairs++;

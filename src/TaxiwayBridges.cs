@@ -220,11 +220,18 @@ namespace AdvancedTaxiways
                 }
             }
 
-            var sizes = new List<int>(culDeSac.Values);
-            sizes.Sort();
-            sizes.Reverse();
-            string biggest = sizes.Count == 0 ? "none"
-                : string.Join(", ", sizes.GetRange(0, Mathf.Min(6, sizes.Count)).ConvertAll(x => x.ToString()).ToArray());
+            // Bucketed, not a top-six list. Along a chain of bridges each successive one
+            // has one fewer node behind it, so a raw list reads "168, 167, 166, 165..." —
+            // six numbers describing one dead-end corridor rather than six areas.
+            int tiny = 0, small = 0, medium = 0, large = 0;
+            foreach (int size in culDeSac.Values)
+            {
+                if (size <= 3) tiny++;
+                else if (size <= 20) small++;
+                else if (size <= 80) medium++;
+                else large++;
+            }
+            string biggest = $"{tiny} stand spurs (<=3), {small} small (<=20), {medium} ramp-sized (<=80), {large} large (>80)";
 
             Plugin.Log.LogInfo(
                 $"Bottlenecks: {rawNodes} nodes, {mutual} two-way links, {oneway} one-way, "
