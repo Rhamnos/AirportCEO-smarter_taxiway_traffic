@@ -1,0 +1,77 @@
+name: Something went wrong
+description: Aircraft stuck, holding when they shouldn't, or the game running badly
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time. The log is the single most useful thing you can
+        attach — whenever the mod finds aircraft it cannot free it writes a warning
+        naming them and where they are, so that file often explains a stuck aircraft
+        on its own.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What the aircraft did, and what you expected instead.
+      placeholder: Two aircraft met nose to nose on the ramp connector and neither moved.
+    validations:
+      required: true
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Player.log
+      description: |
+        Drag the file into this box and it will upload.
+
+        Windows: press Win+R, paste
+        `%USERPROFILE%\AppData\LocalLow\Apoapsis Studios\Airport CEO\Player.log`
+        and hit Enter.
+
+        Send it before you restart the game — on the next launch it becomes
+        Player-prev.log and then gets overwritten.
+    validations:
+      required: true
+
+  - type: textarea
+    id: save
+    attributes:
+      label: Save file
+      description: |
+        Optional, but it lets me reproduce the problem instead of guessing at it.
+        Zip the folder and drag it in.
+
+        Windows: `%APPDATA%\Apoapsis Studios\Airport CEO\Saves\`
+    validations:
+      required: false
+
+  - type: textarea
+    id: settings
+    attributes:
+      label: Settings you have changed
+      description: >
+        Anything you have moved away from the default in Configuration Manager (F1).
+        "None" is a perfectly good answer.
+    validations:
+      required: false
+
+  - type: textarea
+    id: screenshot
+    attributes:
+      label: Screenshot
+      description: If aircraft are stuck, a picture of where usually says more than a description.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: acknowledge
+    attributes:
+      label: Before you post
+      options:
+        - label: >
+            I understand this is a public repository, so anything I attach here can be
+            downloaded by anyone. Player.log contains your Windows username in its file
+            paths — nothing more sensitive than that, but worth knowing before you upload.
+          required: true
