@@ -5,7 +5,7 @@ using HarmonyLib;
 
 namespace AdvancedTaxiways
 {
-    [BepInPlugin(Guid, "AirportCEO Advanced Taxiways", "0.1.0")]
+    [BepInPlugin(Guid, "AirportCEO Advanced Taxiways", "1.0.2")]
     public class Plugin : BaseUnityPlugin
     {
         public const string Guid = "org.airportceoadvancedtaxiways.farber";
