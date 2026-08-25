@@ -948,7 +948,7 @@ namespace AdvancedTaxiways
 
             // Same reasoning as ResolveBlock: preventing an unrecoverable head-on outranks
             // avoiding a recoverable ordering loop.
-            if (MoveAheadEverywhere(winner, loser, winnerPath, guardCycles: false)
+            if (MoveAheadEverywhere(winner, loser, winnerPath, guardCycles: false, yieldToBlocks: true)
                 && lastChangedQueues > 0 && Plugin.OvertakeLogging.Value)
             {
                 bool onlyWay = TaxiwayBridges.IsBridge(mPath.nodes[index],
@@ -1744,7 +1744,8 @@ namespace AdvancedTaxiways
         }
 
         private bool MoveAheadEverywhere(AircraftController mover, AircraftController blocker,
-                                         SmoothPath<TaxiwayNode> path, bool guardCycles)
+                                         SmoothPath<TaxiwayNode> path, bool guardCycles,
+                                         bool yieldToBlocks = false)
         {
             var blockerPath = PathOf(blocker);
             if (blockerPath?.nodes == null) return false;
@@ -1782,6 +1783,24 @@ namespace AdvancedTaxiways
             {
                 var node = path.nodes[i];
                 if (node == null || !node.ContainsReference(blockerID)) continue;
+
+                // The block layer has already picked one direction for this whole
+                // single-lane run, earlier in this same sweep, and its decision covers
+                // every aircraft in the block rather than just this pair. Reordering
+                // here would write the opposite order across the block's nodes as well
+                // as the junction ground the caller actually cares about, and since
+                // EnforceBlocks runs first every sweep the two passes then undo each
+                // other forever. Seen on a 41-node corridor: 2039 overtakes per
+                // aircraft-hour with neither aircraft moving, ending in a head-on
+                // *inside* the block that nothing could reorder out of.
+                //
+                // Give up on the pair rather than skipping the node, so the reorder
+                // stays all-or-nothing.
+                if (yieldToBlocks)
+                {
+                    int owned = TaxiwayBlocks.BlockAt(node);
+                    if (owned >= 0 && blockOwner.ContainsKey(owned)) return false;
+                }
 
                 // Never wave the mover through ground the blocker is standing on, and
                 // never apply the reorder to only part of what they share.
