@@ -28,19 +28,18 @@ Fixed:
   wrong. A four-figure "overtakes per aircraft-hour" in the summary line is the
   signature.
 
-## 1.0.1 — 2026-08-22 — staged but never published
-
-Built and tested locally; the Workshop item stayed on 1.0.0, so **no subscriber
-ever received this**. Its contents ship in 1.0.2.
-
-- Taxiway distances are measured rather than assumed to be 4 m per node. A
+- **Taxiway distances are measured rather than assumed to be 4 m per node.** A
   diagonal step is 4√2 ≈ 5.66 m, so a diagonal run is nearly 30% longer than
-  counting nodes suggests — which meant a taxiway segment could be handed to
+  counting nodes suggests — which meant a stretch of taxiway could be handed to
   oncoming traffic while an aircraft was still traversing it.
+
+Changed:
+
 - The small-aircraft tail default is now 5 nodes, matching the game's own
-  look-back, rather than 4. Too short puts two aeroplanes in the same place, which
-  is visible; too long only costs an occasional missed promotion, which is not.
-- Bug reports moved to
+  look-back, rather than 4. Too short puts two aeroplanes in the same place,
+  which is visible; too long only costs an occasional missed promotion, which is
+  not.
+- Bug reports now go to
   [GitHub issues](https://github.com/Rhamnos/AirportCEO-smarter_taxiway_traffic/issues),
   because Steam comments cannot carry a log file attachment.
 
